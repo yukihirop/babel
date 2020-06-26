@@ -46,8 +46,6 @@ export default class NodePath {
     this.node = null;
     this.scope = null;
     this.type = null;
-    this.cachePaths = [];
-    this.targetPath = null;
   }
 
   parent: Object;
@@ -69,16 +67,18 @@ export default class NodePath {
   node: ?Object;
   scope: Scope;
   type: ?string;
-  cachePaths: Array<NodePath>;
-  targetPath: NodePath;
 
   static get({ hub, parentPath, parent, container, listKey, key }): NodePath {
-    if (!hub && parentPath) {
-      hub = parentPath.hub;
-    }
+    this.cachePaths = this.cachePaths || [];
+    this.targetNode = this.targetNode || null;
+    this.targetPath = this.targetPath || null;
 
     if (!parent) {
       throw new Error("To get a node path the parent needs to exist");
+    }
+
+    if (!hub && parentPath) {
+      hub = parentPath.hub;
     }
 
     const paths = pathCache.get(parent) || [];
@@ -86,32 +86,41 @@ export default class NodePath {
       pathCache.set(parent, paths);
     }
 
+    const targetNode = container[key];
+    let isNeedSetupPath = false;
     if (this.cachePaths === paths) {
       if (this.targetPath) {
-        return this.targetPath;
+        if (this.targetNode === targetNode) {
+          return this.targetPath;
+        } else {
+          this.targetNode = targetNode;
+          isNeedSetupPath = true;
+        }
       } else {
-        this.targetPath = getSetupPath({
-          hub,
-          parentPath,
-          container,
-          listKey,
-          key,
-          paths,
-        });
-        return this.targetPath;
+        isNeedSetupPath = true;
       }
     } else {
       this.cachePaths = paths;
-      this.targetPath = getSetupPath({
-        hub,
-        parentPath,
-        container,
-        listKey,
-        key,
-        paths,
-      });
-      return this.targetPath;
+      isNeedSetupPath = true;
     }
+
+    if (isNeedSetupPath) {
+      const { path: targetPath, isNewPath } = getSetupPath(
+        {
+          hub,
+          parentPath,
+          parent,
+          container,
+          listKey,
+          key,
+        },
+        paths,
+      );
+      this.targetPath = targetPath;
+      if (isNewPath) paths.push(targetPath);
+    }
+
+    return this.targetPath;
   }
 
   getScope(scope: Scope) {
@@ -218,16 +227,13 @@ export default class NodePath {
   }
 }
 
-function getSetupPath({
-  hub,
-  parentPath,
-  container,
-  listKey,
-  key,
-  paths,
-}: NodePath & { paths: Array<NodePath> }) {
+function getSetupPath(
+  { hub, parentPath, parent, container, listKey, key }: NodePath,
+  paths: Array<NodePath>,
+): { path: NodePath, isNewPath: boolean } {
   const targetNode = container[key];
   let path;
+  let isNewPath = false;
 
   for (let i = 0; i < paths.length; i++) {
     const pathCheck = paths[i];
@@ -239,11 +245,11 @@ function getSetupPath({
 
   if (!path) {
     path = new NodePath(hub, parent);
-    paths.push(path);
+    isNewPath = true;
   }
 
   path.setup(parentPath, container, listKey, key);
-  return path;
+  return { path, isNewPath };
 }
 
 Object.assign(
