@@ -46,6 +46,8 @@ export default class NodePath {
     this.node = null;
     this.scope = null;
     this.type = null;
+    this.cachePaths = [];
+    this.targetPath = null;
   }
 
   parent: Object;
@@ -67,6 +69,8 @@ export default class NodePath {
   node: ?Object;
   scope: Scope;
   type: ?string;
+  cachePaths: Array<NodePath>;
+  targetPath: NodePath;
 
   static get({ hub, parentPath, parent, container, listKey, key }): NodePath {
     if (!hub && parentPath) {
@@ -77,31 +81,37 @@ export default class NodePath {
       throw new Error("To get a node path the parent needs to exist");
     }
 
-    const targetNode = container[key];
-
     const paths = pathCache.get(parent) || [];
     if (!pathCache.has(parent)) {
       pathCache.set(parent, paths);
     }
 
-    let path;
-
-    for (let i = 0; i < paths.length; i++) {
-      const pathCheck = paths[i];
-      if (pathCheck.node === targetNode) {
-        path = pathCheck;
-        break;
+    if (this.cachePaths === paths) {
+      if (this.targetPath) {
+        return this.targetPath;
+      } else {
+        this.targetPath = getSetupPath({
+          hub,
+          parentPath,
+          container,
+          listKey,
+          key,
+          paths,
+        });
+        return this.targetPath;
       }
+    } else {
+      this.cachePaths = paths;
+      this.targetPath = getSetupPath({
+        hub,
+        parentPath,
+        container,
+        listKey,
+        key,
+        paths,
+      });
+      return this.targetPath;
     }
-
-    if (!path) {
-      path = new NodePath(hub, parent);
-      paths.push(path);
-    }
-
-    path.setup(parentPath, container, listKey, key);
-
-    return path;
   }
 
   getScope(scope: Scope) {
@@ -206,6 +216,34 @@ export default class NodePath {
       this._traverseFlags &= ~REMOVED;
     }
   }
+}
+
+function getSetupPath({
+  hub,
+  parentPath,
+  container,
+  listKey,
+  key,
+  paths,
+}: NodePath & { paths: Array<NodePath> }) {
+  const targetNode = container[key];
+  let path;
+
+  for (let i = 0; i < paths.length; i++) {
+    const pathCheck = paths[i];
+    if (pathCheck.node === targetNode) {
+      path = pathCheck;
+      break;
+    }
+  }
+
+  if (!path) {
+    path = new NodePath(hub, parent);
+    paths.push(path);
+  }
+
+  path.setup(parentPath, container, listKey, key);
+  return path;
 }
 
 Object.assign(
